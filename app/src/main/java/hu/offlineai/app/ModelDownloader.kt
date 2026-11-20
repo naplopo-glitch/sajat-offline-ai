@@ -1,3 +1,4 @@
+
 package hu.offlineai.app
 
 import android.content.Context
@@ -24,6 +25,15 @@ object ModelDownloader {
     fun modelFile(context: Context): File {
         return File(context.filesDir, MODEL_FILE_NAME)
     }
+
+    suspend fun isValid(context: Context): Boolean =
+        withContext(Dispatchers.IO) {
+            val file = modelFile(context)
+
+            file.exists() &&
+                file.length() == EXPECTED_SIZE &&
+                sha256(file) == EXPECTED_SHA256
+        }
 
     suspend fun download(
         context: Context,
@@ -110,13 +120,11 @@ object ModelDownloader {
             }
 
             onProgress(100)
-
             destination
 
         } catch (error: Exception) {
             temporary.delete()
             throw error
-
         } finally {
             connection.disconnect()
         }
@@ -142,4 +150,3 @@ object ModelDownloader {
         }
     }
 }
-
