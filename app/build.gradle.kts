@@ -1,8 +1,8 @@
 
 plugins {
-    id("com.android.application") version "8.7.3"
-    id("org.jetbrains.kotlin.android") version "2.0.21"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
+    id("com.android.application") version "8.13.0"
+    id("org.jetbrains.kotlin.android") version "2.3.0"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.0"
 }
 
 android {
@@ -13,8 +13,8 @@ android {
         applicationId = "hu.offlineai.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     compileOptions {
@@ -36,6 +36,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Helyi, internet nélkül futó AI-motor
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
