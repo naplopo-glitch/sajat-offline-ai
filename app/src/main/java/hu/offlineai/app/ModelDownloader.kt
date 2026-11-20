@@ -1,152 +1,269 @@
 
 package hu.offlineai.app
 
-import android.content.Context
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.security.MessageDigest
 
-object ModelDownloader {
+private val Yellow = Color(0xFFFFC400)
+private val Dark = Color(0xFF090909)
+private val Panel = Color(0xFF191919)
 
-    const val MODEL_FILE_NAME = "Qwen3-0.6B.litertlm"
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            OfflineAIApp()
+        }
+    }
+}
 
-    private const val MODEL_URL =
-        "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B.litertlm"
+@Composable
+fun OfflineAIApp() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    private const val EXPECTED_SIZE = 613722264L
+    var message by remember { mutableStateOf("") }
+    val messages = remember { mutableStateListOf<String>() }
 
-    private const val EXPECTED_SHA256 =
-        "c5f39b4191926786c3e6668b62af4d6eb15248dfc7a5348252a9b406f33f2108"
+    var downloading by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(true) }
+    var progress by remember { mutableIntStateOf(0) }
+    var modelReady by remember { mutableStateOf(false) }
 
-    fun modelFile(context: Context): File {
-        return File(context.filesDir, MODEL_FILE_NAME)
+    var status by remember {
+        mutableStateOf("A modell ellenőrzése...")
     }
 
-    suspend fun isValid(context: Context): Boolean =
-        withContext(Dispatchers.IO) {
-            val file = modelFile(context)
-
-            file.exists() &&
-                file.length() == EXPECTED_SIZE &&
-                sha256(file) == EXPECTED_SHA256
-        }
-
-    suspend fun download(
-        context: Context,
-        onProgress: (Int) -> Unit
-    ): File = withContext(Dispatchers.IO) {
-
-        val destination = modelFile(context)
-
-        if (destination.exists() &&
-            destination.length() == EXPECTED_SIZE &&
-            sha256(destination) == EXPECTED_SHA256
-        ) {
-            onProgress(100)
-            return@withContext destination
-        }
-
-        destination.delete()
-
-        val temporary = File(
-            context.filesDir,
-            "$MODEL_FILE_NAME.part"
-        )
-
-        temporary.delete()
-
-        val connection =
-            URL(MODEL_URL).openConnection() as HttpURLConnection
-
+    LaunchedEffect(context) {
         try {
-            connection.connectTimeout = 30000
-            connection.readTimeout = 60000
-            connection.instanceFollowRedirects = true
+            modelReady = ModelDownloader.isValid(context)
 
-            connection.connect()
+            status = if (modelReady) {
+                "A modell letöltve és ellenőrizve."
+            } else {
+                "A helyi AI-modell még nincs letöltve."
+            }
+        } catch (error: Exception) {
+            modelReady = false
+            status = "Ellenőrzési hiba: ${error.message}"
+        } finally {
+            checking = false
+        }
+    }
 
-            if (connection.responseCode != 200) {
-                throw Exception(
-                    "Letöltési hiba: HTTP ${connection.responseCode}"
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Yellow,
+            background = Dark,
+            surface = Panel,
+            onPrimary = Color.Black,
+            onBackground = Color.White,
+            onSurface = Color.White
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Dark)
+                .padding(18.dp)
+        ) {
+            Text(
+                text = "OFFLINE AI",
+                color = Yellow,
+                fontSize = 25.sp
+            )
+
+            Text(
+                text = "Saját mesterséges intelligenciád",
+                color = Color.Gray,
+                fontSize = 13.sp
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Panel
                 )
-            }
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp)
+                ) {
+                    Text(
+                        text = "● RENDSZER",
+                        color = Yellow
+                    )
 
-            if (connection.contentLengthLong != EXPECTED_SIZE) {
-                throw Exception("A modell fájlmérete nem megfelelő.")
-            }
+                    Spacer(modifier = Modifier.height(8.dp))
 
-            var downloaded = 0L
+                    Text(
+                        text = status,
+                        color = Color.White
+                    )
 
-            connection.inputStream.use { input ->
-                FileOutputStream(temporary).use { output ->
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    val buffer = ByteArray(65536)
+                    if (downloading) {
+                        LinearProgressIndicator(
+                            progress = { progress / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Yellow,
+                            trackColor = Color.DarkGray
+                        )
 
-                    while (true) {
-                        val count = input.read(buffer)
-
-                        if (count == -1) break
-
-                        output.write(buffer, 0, count)
-                        downloaded += count
-
-                        val progress =
-                            (downloaded * 100 / EXPECTED_SIZE)
-                                .toInt()
-                                .coerceIn(0, 99)
-
-                        onProgress(progress)
+                        Text(
+                            text = "Letöltés: $progress%",
+                            color = Yellow,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
                     }
 
-                    output.fd.sync()
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                downloading = true
+                                progress = 0
+                                status = "AI-modell letöltése folyamatban..."
+
+                                try {
+                                    ModelDownloader.download(context) {
+                                        withContext(Dispatchers.Main) {
+                                            progress = it
+                                        }
+                                    }
+
+                                    modelReady =
+                                        ModelDownloader.isValid(context)
+
+                                    status = if (modelReady) {
+                                        "A modell letöltése és ellenőrzése sikerült."
+                                    } else {
+                                        "A modell ellenőrzése sikertelen."
+                                    }
+                                } catch (error: Exception) {
+                                    status =
+                                        "Hiba: ${error.message ?: "Ismeretlen hiba"}"
+                                } finally {
+                                    downloading = false
+                                }
+                            }
+                        },
+                        enabled = !downloading &&
+                            !modelReady &&
+                            !checking,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Yellow,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color.DarkGray,
+                            disabledContentColor = Color.LightGray
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (checking) "Ellenőrzés..."
+                            else if (modelReady) "Modell letöltve"
+                            else if (downloading) "Letöltés..."
+                            else "AI-modell letöltése (kb. 586 MB)"
+                        )
+                    }
                 }
             }
 
-            if (temporary.length() != EXPECTED_SIZE) {
-                throw Exception("A letöltés hiányos.")
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "BESZÉLGETÉS",
+                color = Yellow,
+                fontSize = 14.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(messages) { item ->
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Panel
+                        )
+                    ) {
+                        Text(
+                            text = item,
+                            color = Color.White,
+                            modifier = Modifier.padding(14.dp)
+                        )
+                    }
+                }
             }
 
-            if (sha256(temporary) != EXPECTED_SHA256) {
-                throw Exception("A modell ellenőrzése sikertelen.")
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = message,
+                    onValueChange = { message = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text("Írj valamit...")
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Yellow,
+                        unfocusedBorderColor = Color.DarkGray,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Yellow
+                    )
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = {
+                        if (message.isNotBlank()) {
+                            messages.add("Te: $message")
+                            messages.add(
+                                "Az AI-motor még nincs csatlakoztatva."
+                            )
+                            message = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Yellow,
+                        contentColor = Color.Black
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Küldés")
+                }
             }
-
-            if (!temporary.renameTo(destination)) {
-                temporary.copyTo(destination, overwrite = true)
-                temporary.delete()
-            }
-
-            onProgress(100)
-            destination
-
-        } catch (error: Exception) {
-            temporary.delete()
-            throw error
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-
-        file.inputStream().use { input ->
-            val buffer = ByteArray(65536)
-
-            while (true) {
-                val count = input.read(buffer)
-
-                if (count == -1) break
-
-                digest.update(buffer, 0, count)
-            }
-        }
-
-        return digest.digest().joinToString("") {
-            "%02x".format(it)
         }
     }
 }
