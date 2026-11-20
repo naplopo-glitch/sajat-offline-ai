@@ -2,6 +2,8 @@
 package hu.offlineai.app
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -26,6 +28,7 @@ private val Panel = Color(0xFF191919)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
             OfflineAIApp()
         }
@@ -36,24 +39,55 @@ class MainActivity : ComponentActivity() {
 fun OfflineAIApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    var message by remember { mutableStateOf("") }
-    val messages = remember { mutableStateListOf<String>() }
-
-    var downloading by remember { mutableStateOf(false) }
-    var progress by remember { mutableIntStateOf(0) }
-    var modelReady by remember {
-        mutableStateOf(
-            ModelDownloader.modelFile(context).let {
-                it.exists() && it.length() > 0L
-            }
-        )
+    val mainHandler = remember {
+        Handler(Looper.getMainLooper())
     }
+
+    var message by remember {
+        mutableStateOf("")
+    }
+
+    val messages = remember {
+        mutableStateListOf<String>()
+    }
+
+    var downloading by remember {
+        mutableStateOf(false)
+    }
+
+    var checking by remember {
+        mutableStateOf(true)
+    }
+
+    var progress by remember {
+        mutableIntStateOf(0)
+    }
+
+    var modelReady by remember {
+        mutableStateOf(false)
+    }
+
     var status by remember {
-        mutableStateOf(
-            if (modelReady) "A modellfájl megtalálható."
-            else "A helyi AI-modell még nincs letöltve."
-        )
+        mutableStateOf("A modell ellenőrzése...")
+    }
+
+    LaunchedEffect(context) {
+        checking = true
+
+        try {
+            modelReady = ModelDownloader.isValid(context)
+
+            status = if (modelReady) {
+                "A helyi AI-modell ellenőrizve."
+            } else {
+                "A helyi AI-modell még nincs letöltve."
+            }
+        } catch (error: Exception) {
+            modelReady = false
+            status = "Ellenőrzési hiba: ${error.message}"
+        } finally {
+            checking = false
+        }
     }
 
     MaterialTheme(
@@ -112,7 +146,9 @@ fun OfflineAIApp() {
 
                     if (downloading) {
                         LinearProgressIndicator(
-                            progress = { progress / 100f },
+                            progress = {
+                                progress / 100f
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             color = Yellow,
                             trackColor = Color.DarkGray
@@ -136,19 +172,35 @@ fun OfflineAIApp() {
 
                                 try {
                                     ModelDownloader.download(context) {
-                                        progress = it
+                                        value ->
+                                        mainHandler.post {
+                                            progress = value
+                                        }
                                     }
 
-                                    modelReady = true
-                                    status = "A modell letöltése és ellenőrzése sikerült."
+                                    modelReady =
+                                        ModelDownloader.isValid(context)
+
+                                    if (!modelReady) {
+                                        throw Exception(
+                                            "A modell ellenőrzése sikertelen."
+                                        )
+                                    }
+
+                                    status =
+                                        "A modell letöltése és ellenőrzése sikerült."
+
                                 } catch (error: Exception) {
-                                    status = "Hiba: ${error.message ?: "Ismeretlen hiba"}"
+                                    status =
+                                        "Hiba: ${error.message ?: "Ismeretlen hiba"}"
                                 } finally {
                                     downloading = false
                                 }
                             }
                         },
-                        enabled = !downloading && !modelReady,
+                        enabled = !downloading &&
+                            !modelReady &&
+                            !checking,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Yellow,
                             contentColor = Color.Black,
@@ -159,9 +211,12 @@ fun OfflineAIApp() {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            if (modelReady) "Modell letöltve"
-                            else if (downloading) "Letöltés..."
-                            else "AI-modell letöltése (kb. 586 MB)"
+                            when {
+                                checking -> "Ellenőrzés..."
+                                modelReady -> "Modell letöltve"
+                                downloading -> "Letöltés..."
+                                else -> "AI-modell letöltése (kb. 586 MB)"
+                            }
                         )
                     }
                 }
@@ -204,7 +259,9 @@ fun OfflineAIApp() {
             ) {
                 OutlinedTextField(
                     value = message,
-                    onValueChange = { message = it },
+                    onValueChange = {
+                        message = it
+                    },
                     modifier = Modifier.weight(1f),
                     placeholder = {
                         Text("Írj valamit...")
