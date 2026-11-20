@@ -14,8 +14,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 private val Yellow = Color(0xFFFFC400)
 private val Dark = Color(0xFF090909)
@@ -32,8 +34,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun OfflineAIApp() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var message by remember { mutableStateOf("") }
     val messages = remember { mutableStateListOf<String>() }
+
+    var downloading by remember { mutableStateOf(false) }
+    var progress by remember { mutableIntStateOf(0) }
+    var modelReady by remember {
+        mutableStateOf(
+            ModelDownloader.modelFile(context).let {
+                it.exists() && it.length() > 0L
+            }
+        )
+    }
+    var status by remember {
+        mutableStateOf(
+            if (modelReady) "A modellfájl megtalálható."
+            else "A helyi AI-modell még nincs letöltve."
+        )
+    }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -63,7 +84,7 @@ fun OfflineAIApp() {
                 fontSize = 13.sp
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -72,21 +93,77 @@ fun OfflineAIApp() {
                     containerColor = Panel
                 )
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
+                Column(
+                    modifier = Modifier.padding(18.dp)
+                ) {
                     Text(
                         text = "● RENDSZER",
                         color = Yellow
                     )
+
                     Spacer(modifier = Modifier.height(8.dp))
+
                     Text(
-                        text = "A kezelőfelület elkészült.",
+                        text = status,
                         color = Color.White
                     )
-                    Text(
-                        text = "Az offline AI-modell még nincs csatlakoztatva.",
-                        color = Color.Gray,
-                        fontSize = 12.sp
-                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (downloading) {
+                        LinearProgressIndicator(
+                            progress = { progress / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Yellow,
+                            trackColor = Color.DarkGray
+                        )
+
+                        Text(
+                            text = "Letöltés: $progress%",
+                            color = Yellow,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                downloading = true
+                                progress = 0
+                                status = "AI-modell letöltése folyamatban..."
+
+                                try {
+                                    ModelDownloader.download(context) {
+                                        progress = it
+                                    }
+
+                                    modelReady = true
+                                    status = "A modell letöltése és ellenőrzése sikerült."
+                                } catch (error: Exception) {
+                                    status = "Hiba: ${error.message ?: "Ismeretlen hiba"}"
+                                } finally {
+                                    downloading = false
+                                }
+                            }
+                        },
+                        enabled = !downloading && !modelReady,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Yellow,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color.DarkGray,
+                            disabledContentColor = Color.LightGray
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (modelReady) "Modell letöltve"
+                            else if (downloading) "Letöltés..."
+                            else "AI-modell letöltése (kb. 586 MB)"
+                        )
+                    }
                 }
             }
 
@@ -149,7 +226,7 @@ fun OfflineAIApp() {
                         if (message.isNotBlank()) {
                             messages.add("Te: $message")
                             messages.add(
-                                "Offline AI: A helyi modell még nincs csatlakoztatva."
+                                "Az AI-motor még nincs csatlakoztatva."
                             )
                             message = ""
                         }
